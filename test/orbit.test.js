@@ -9,15 +9,24 @@ const { WebSocket } = require('ws');
 const testDirectory = fs.mkdtempSync(path.join(os.tmpdir(), 'orbit-test-'));
 process.env.PORT = '0';
 process.env.ORBIT_SECRET_FILE = path.join(testDirectory, 'secret');
-const { server, ACCESS_CODE } = require('../server');
+
+const isWindows = process.platform === 'win32';
+let server;
+let ACCESS_CODE;
+if (isWindows) ({ server, ACCESS_CODE } = require('../server'));
+const maybeTest = isWindows ? test : test.skip;
 
 test.before(async () => {
+  if (!isWindows) return;
   if (!server.listening) await once(server, 'listening');
 });
 
-test.after(() => new Promise(resolve => server.close(resolve)));
+test.after(() => {
+  if (!isWindows) return;
+  return new Promise(resolve => server.close(resolve));
+});
 
-test('serves the remote access website and reports locked status', async () => {
+maybeTest('serves the remote access website and reports locked status', async () => {
   const { port } = server.address();
   const homepage = await fetch(`http://127.0.0.1:${port}/`);
   assert.equal(homepage.status, 200);
@@ -27,7 +36,7 @@ test('serves the remote access website and reports locked status', async () => {
   assert.ok(status.screen.width > 0);
 });
 
-test('rejects an incorrect code and authenticates the private code', async () => {
+maybeTest('rejects an incorrect code and authenticates the private code', async () => {
   const { port } = server.address();
   const bad = await fetch(`http://127.0.0.1:${port}/api/login`, {
     method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ code: 'WRONGCODE' })
@@ -41,7 +50,7 @@ test('rejects an incorrect code and authenticates the private code', async () =>
   assert.match(good.headers.get('set-cookie'), /orbit_session=/);
 });
 
-test('opens the desktop socket with a valid authenticated session', async () => {
+maybeTest('opens the desktop socket with a valid authenticated session', async () => {
   const { port } = server.address();
   const login = await fetch(`http://127.0.0.1:${port}/api/login`, {
     method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ code: ACCESS_CODE })

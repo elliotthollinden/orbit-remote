@@ -11,6 +11,8 @@ if (-not (Test-Path -LiteralPath $cloudflared)) {
   Invoke-WebRequest -UseBasicParsing -Uri 'https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-windows-amd64.exe' -OutFile $cloudflared
 }
 
+$signature = Get-AuthenticodeSignature -FilePath $cloudflared
+if ($signature.Status -ne 'Valid') { throw "cloudflared.exe signature is not valid: $($signature.Status)" }
 Write-Host 'Starting secure browser access...' -ForegroundColor Cyan
 Write-Host 'Keep this window open. Your public HTTPS address appears below.'
 Write-Host ''

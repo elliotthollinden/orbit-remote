@@ -74,10 +74,17 @@ const mimeTypes = {
 };
 
 function parseCookies(req) {
-  return Object.fromEntries((req.headers.cookie || '').split(';').filter(Boolean).map(value => {
-    const index = value.indexOf('=');
-    return [value.slice(0, index).trim(), decodeURIComponent(value.slice(index + 1).trim())];
-  }));
+  const header = req.headers.cookie || '';
+  const entries = [];
+  for (const part of header.split(';')) {
+    if (!part) continue;
+    const index = part.indexOf('=');
+    if (index <= 0) continue;
+    const name = part.slice(0, index).trim();
+    const rawValue = part.slice(index + 1).trim();
+    try { entries.push([name, decodeURIComponent(rawValue)]); } catch { entries.push([name, rawValue]); }
+  }
+  return Object.fromEntries(entries);
 }
 
 function getSession(req) {
@@ -104,14 +111,24 @@ function json(res, status, payload, headers = {}) {
 function readJson(req) {
   return new Promise((resolve, reject) => {
     let body = '';
+    let aborted = false;
     req.on('data', chunk => {
+      if (aborted) return;
       body += chunk;
-      if (body.length > 4096) req.destroy();
+      if (body.length > 4096) {
+        aborted = true;
+        reject(new Error('Body too large'));
+        req.destroy();
+      }
     });
     req.on('end', () => {
+      if (aborted) return;
       try { resolve(JSON.parse(body || '{}')); } catch { reject(new Error('Invalid JSON')); }
     });
     req.on('error', reject);
+    req.on('close', () => {
+      if (!aborted && body.length > 4096) reject(new Error('Body too large'));
+    });
   });
 }
 
@@ -194,7 +211,13 @@ async function handleApi(req, res, pathname) {
 }
 
 const server = http.createServer(async (req, res) => {
-  const pathname = decodeURIComponent((req.url || '/').split('?')[0]);
+  let pathname = '/';
+  try {
+    pathname = decodeURIComponent((req.url || '/').split('?')[0]);
+  } catch {
+    res.writeHead(400, securityHeaders()).end('Bad request');
+    return;
+  }
   if (pathname.startsWith('/api/')) return handleApi(req, res, pathname);
 
   const requested = pathname === '/' ? 'index.html' : pathname.replace(/^\/+/, '');
@@ -692,7 +715,7 @@ server.listen(PORT, HOST, () => {
   const address = server.address();
   console.log(`\nOrbit Remote is running on ${os.hostname()}`);
   console.log(`Local address: http://${HOST}:${address.port}`);
-  console.log(`Access code: ${ACCESS_CODE}`);
+  console.log('Access code: run "npm run code" to display the current access code');
   console.log('For browser access anywhere, run: npm run enable-anywhere\n');
 });
 
